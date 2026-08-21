@@ -76,4 +76,5 @@ jobs:
             --service_name=wedding-planner-agent \
             --with_ui \
             --trace_to_cloud \
-            wedding_planner
+            wedding_planner \
+            -- --quiet
