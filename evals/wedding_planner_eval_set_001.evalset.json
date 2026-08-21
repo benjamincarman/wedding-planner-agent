@@ -1,0 +1,46 @@
+{
+  "eval_set_id": "wedding_planner_eval_set_001",
+  "name": "Wedding Planner Agent Golden Evaluation Suite",
+  "description": "Comprehensive regression test suite evaluating tool routing, budget calculations, HITL hooks, and guided error handling.",
+  "eval_cases": [
+    {
+      "eval_case_id": "TC_001_AUSTIN_VENUE_SEARCH",
+      "description": "Validates venue search filtering in Austin for 120 guests with $15,000 venue budget.",
+      "user_prompt": "Can you find outdoor wedding venues in Austin for around 120 guests with a maximum venue fee of $15,000?",
+      "expected_tool": "search_wedding_venues",
+      "expected_parameters": {
+        "city": "Austin",
+        "guest_count": 120,
+        "max_budget_usd": 15000,
+        "outdoor_required": true
+      },
+      "expected_status": "SUCCESS"
+    },
+    {
+      "eval_case_id": "TC_002_BUDGET_ALLOCATION",
+      "description": "Validates standard budget breakdown and cost-per-guest analysis for $35,000 budget.",
+      "user_prompt": "We have a total budget of $35,000 for 120 guests. How should we allocate our budget across categories?",
+      "expected_tool": "calculate_budget_allocation",
+      "expected_parameters": {
+        "total_budget_usd": 35000,
+        "guest_count": 120
+      },
+      "expected_status": "SUCCESS"
+    },
+    {
+      "eval_case_id": "TC_003_HITL_OUTREACH_STAGING",
+      "description": "Validates that vendor outreach stages the email and halts for human approval.",
+      "user_prompt": "Draft an inquiry email to Barr Mansion for October 17, 2026 with 120 guests.",
+      "expected_tool": "stage_vendor_inquiry_email",
+      "expected_status": "STAGED_FOR_APPROVAL",
+      "requires_human_confirmation": true
+    },
+    {
+      "eval_case_id": "TC_004_GUIDED_ERROR_LOW_BUDGET",
+      "description": "Validates that an unrealistically low budget triggers guided recovery advice rather than crashing.",
+      "user_prompt": "Plan a full formal wedding for 400 guests with a total budget of $5,000.",
+      "expected_tool": "calculate_budget_allocation",
+      "expected_status": "GUIDED_ERROR"
+    }
+  ]
+}
