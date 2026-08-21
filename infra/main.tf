@@ -163,9 +163,15 @@ resource "google_project_iam_member" "sa_run_admin" {
   member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
 }
 
-resource "google_project_iam_member" "sa_artifact_writer" {
+resource "google_project_iam_member" "sa_artifact_admin" {
   project = var.project_id
-  role    = "roles/artifactregistry.writer"
+  role    = "roles/artifactregistry.admin"
+  member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
+
+resource "google_project_iam_member" "sa_storage_admin" {
+  project = var.project_id
+  role    = "roles/storage.admin"
   member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
 }
 
