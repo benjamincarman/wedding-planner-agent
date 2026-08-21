@@ -135,3 +135,28 @@ resource "google_service_account_iam_member" "wif_binding" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_pool.name}/*"
 }
+
+# 10. Grant Deployment IAM Roles to the Service Account
+resource "google_project_iam_member" "sa_run_admin" {
+  project = var.project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
+
+resource "google_project_iam_member" "sa_artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
+
+resource "google_project_iam_member" "sa_cloudbuild_editor" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.editor"
+  member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
+
+resource "google_service_account_iam_member" "sa_user_self" {
+  service_account_id = google_service_account.agent_runner_sa.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
