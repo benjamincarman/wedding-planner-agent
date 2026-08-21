@@ -51,14 +51,20 @@ resource "google_service_account" "agent_runner_sa" {
   display_name = "Wedding Planner Agent Cloud Run Runner"
 }
 
-# 5. Grant Secret Access to Cloud Run SA
+# 5. Grant Secret & Artifact Access to Cloud Run SA
 resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   secret_id = google_secret_manager_secret.gemini_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.agent_runner_sa.email}"
 }
 
-# 6. Cloud Run Service Deployment
+resource "google_project_iam_member" "sa_artifact_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.agent_runner_sa.email}"
+}
+
+# 6. Cloud Run Service Deployment (Bootstraps with public placeholder, updated via ADK/CI-CD)
 resource "google_cloud_run_v2_service" "agent_service" {
   name     = var.service_name
   location = var.region
@@ -67,7 +73,7 @@ resource "google_cloud_run_v2_service" "agent_service" {
   template {
     service_account = google_service_account.agent_runner_sa.email
     containers {
-      image = var.container_image
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
       resources {
         limits = {
           cpu    = "2"
@@ -94,9 +100,16 @@ resource "google_cloud_run_v2_service" "agent_service" {
     }
   }
 
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image
+    ]
+  }
+
   depends_on = [
     google_project_service.apis,
-    google_secret_manager_secret_iam_member.secret_accessor
+    google_secret_manager_secret_iam_member.secret_accessor,
+    google_artifact_registry_repository.agent_repo
   ]
 }
 
@@ -113,6 +126,7 @@ resource "google_iam_workload_identity_pool" "github_pool" {
   workload_identity_pool_id = "github-actions-pool"
   display_name              = "GitHub Actions Pool"
   description               = "Workload Identity Pool for GitHub Actions keyless deployments"
+  depends_on                = [google_project_service.apis]
 }
 
 resource "google_iam_workload_identity_pool_provider" "github_provider" {
@@ -120,10 +134,12 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   workload_identity_pool_provider_id = "github-provider"
   display_name                       = "GitHub Provider"
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.actor"      = "assertion.actor"
-    "attribute.repository" = "assertion.repository"
+    "google.subject"             = "assertion.sub"
+    "attribute.actor"            = "assertion.actor"
+    "attribute.repository"       = "assertion.repository"
+    "attribute.repository_owner" = "assertion.repository_owner"
   }
+  attribute_condition = "assertion.repository_owner != ''"
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
