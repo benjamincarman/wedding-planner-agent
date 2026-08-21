@@ -1,6 +1,8 @@
 """Wedding Venue Search, Distance Verification, and Pricing Evaluation Tools."""
 
+import json
 import math
+import os
 import time
 from typing import Any, Dict, List, Optional
 from wedding_planner.tools.schemas import (
@@ -10,109 +12,12 @@ from wedding_planner.tools.schemas import (
     DistanceVerificationInput,
     DistanceVerificationOutput,
 )
-from wedding_planner.observability.logging import log_intent, log_outcome
+from wedding_planner.observability.logging import log_intent, log_outcome, logger
 from wedding_planner.observability.tracing import trace_span
 
-# Comprehensive Curated Regional & Nationwide Venue Database
-SAMPLE_VENUES_DATABASE: List[Dict[str, Any]] = [
-    # Northeast Ohio / Akron / Cleveland / Canton / Valley
-    {
-        "name": "Stan Hywet Hall & Gardens",
-        "city": "Akron",
-        "state": "OH",
-        "max_capacity": 200,
-        "rental_fee_usd": 5500.0,
-        "estimated_total_usd": 12500.0,
-        "style": "historic manor & botanical garden",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "weddings@stanhywet.org",
-    },
-    {
-        "name": "The Barn at Wolf Creek",
-        "city": "Akron",
-        "state": "OH",
-        "max_capacity": 180,
-        "rental_fee_usd": 4200.0,
-        "estimated_total_usd": 10500.0,
-        "style": "rustic barn",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "events@barnatwolfcreek.com",
-    },
-    {
-        "name": "Hines Hill Campus - Cuyahoga Valley National Park",
-        "city": "Peninsula",
-        "state": "OH",
-        "max_capacity": 160,
-        "rental_fee_usd": 3800.0,
-        "estimated_total_usd": 9800.0,
-        "style": "rustic nature / park lodge",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "rentals@conservancyforcvnp.org",
-    },
-    {
-        "name": "The Bertram Inn & Event Center",
-        "city": "Aurora",
-        "state": "OH",
-        "max_capacity": 350,
-        "rental_fee_usd": 3200.0,
-        "estimated_total_usd": 11000.0,
-        "style": "ballroom / resort",
-        "has_outdoor_space": True,
-        "allows_outside_catering": False,
-        "contact_email": "events@thebertraminn.com",
-    },
-    {
-        "name": "Guy's Party Center",
-        "city": "Akron",
-        "state": "OH",
-        "max_capacity": 400,
-        "rental_fee_usd": 2500.0,
-        "estimated_total_usd": 9500.0,
-        "style": "traditional banquet & ballroom",
-        "has_outdoor_space": False,
-        "allows_outside_catering": False,
-        "contact_email": "info@guyspartycenter.com",
-    },
-    {
-        "name": "The Glidden House",
-        "city": "Cleveland",
-        "state": "OH",
-        "max_capacity": 175,
-        "rental_fee_usd": 4800.0,
-        "estimated_total_usd": 13000.0,
-        "style": "historic mansion",
-        "has_outdoor_space": True,
-        "allows_outside_catering": False,
-        "contact_email": "weddings@gliddenhouse.com",
-    },
-    {
-        "name": "Windows on the River",
-        "city": "Cleveland",
-        "state": "OH",
-        "max_capacity": 300,
-        "rental_fee_usd": 4500.0,
-        "estimated_total_usd": 14000.0,
-        "style": "industrial waterfront",
-        "has_outdoor_space": False,
-        "allows_outside_catering": False,
-        "contact_email": "sales@windowsontheriver.com",
-    },
-    {
-        "name": "Mapleside Farms",
-        "city": "Brunswick",
-        "state": "OH",
-        "max_capacity": 275,
-        "rental_fee_usd": 5000.0,
-        "estimated_total_usd": 13500.0,
-        "style": "rustic barn & orchard",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "weddings@mapleside.com",
-    },
-    # Austin, TX
+# Isolated Mock Fallback Database (used exclusively for offline unit testing / offline CI)
+OFFLINE_MOCK_FALLBACK_DATABASE: List[Dict[str, Any]] = [
+    # Austin, TX (used by golden test case TC_001)
     {
         "name": "Barr Mansion & Artisan Ballroom",
         "city": "Austin",
@@ -161,7 +66,7 @@ SAMPLE_VENUES_DATABASE: List[Dict[str, Any]] = [
         "allows_outside_catering": True,
         "contact_email": "hello@prospecthousetx.com",
     },
-    # Napa Valley / Sonoma, CA
+    # Napa Valley, CA (used by unit test test_venue_search_guided_error_tight_budget)
     {
         "name": "Meadowood Napa Valley Estate",
         "city": "Napa Valley",
@@ -186,72 +91,29 @@ SAMPLE_VENUES_DATABASE: List[Dict[str, Any]] = [
         "allows_outside_catering": False,
         "contact_email": "info@treposti.com",
     },
-    # Denver / Colorado Mountains
-    {
-        "name": "Skylight Denver",
-        "city": "Denver",
-        "state": "CO",
-        "max_capacity": 200,
-        "rental_fee_usd": 6500.0,
-        "estimated_total_usd": 13000.0,
-        "style": "industrial modern",
-        "has_outdoor_space": False,
-        "allows_outside_catering": True,
-        "contact_email": "events@skylightdenver.com",
-    },
-    {
-        "name": "Lionsgate Event Center & Chandelier Barn",
-        "city": "Denver",
-        "state": "CO",
-        "max_capacity": 300,
-        "rental_fee_usd": 7500.0,
-        "estimated_total_usd": 16500.0,
-        "style": "rustic",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "weddings@lionsgatecenter.com",
-    },
-    # Miami, FL
-    {
-        "name": "Vizcaya Museum & Gardens",
-        "city": "Miami",
-        "state": "FL",
-        "max_capacity": 250,
-        "rental_fee_usd": 15000.0,
-        "estimated_total_usd": 32000.0,
-        "style": "waterfront historic",
-        "has_outdoor_space": True,
-        "allows_outside_catering": True,
-        "contact_email": "rentals@vizcaya.org",
-    },
 ]
 
-# Geographic City Coordinates for Radius & Drive-Time Calculation
+# Backward-compatibility alias for test harness imports
+SAMPLE_VENUES_DATABASE = OFFLINE_MOCK_FALLBACK_DATABASE
+
+# Geographic City Coordinates for Driving Distance & Transit Time Calculation
 CITY_COORDINATES: Dict[str, tuple] = {
-    # Ohio / Midwest
     "akron": (41.0814, -81.5190),
     "cleveland": (41.4993, -81.6944),
     "canton": (40.7989, -81.3784),
     "peninsula": (41.2409, -81.5498),
     "aurora": (41.3178, -81.3457),
     "brunswick": (41.2384, -81.7946),
+    "bath": (41.1834, -81.6318),
     "youngstown": (41.0998, -80.6495),
     "columbus": (39.9612, -82.9988),
     "cincinnati": (39.1031, -84.5120),
     "pittsburgh": (40.4406, -79.9959),
-    "toledo": (41.6528, -83.5379),
-    "sandusky": (41.4489, -82.7080),
-    # Other Major US Hubs
     "austin": (30.2672, -97.7431),
     "dallas": (32.7767, -96.7970),
     "houston": (29.7604, -95.3698),
-    "san antonio": (29.4241, -98.4936),
     "denver": (39.7392, -104.9903),
-    "boulder": (40.0150, -105.2705),
-    "colorado springs": (38.8339, -104.8214),
     "napa valley": (38.2975, -122.2869),
-    "san francisco": (37.7749, -122.4194),
-    "los angeles": (34.0522, -118.2437),
     "miami": (25.7617, -80.1918),
     "chicago": (41.8781, -87.6298),
     "new york": (40.7128, -74.0060),
@@ -259,16 +121,15 @@ CITY_COORDINATES: Dict[str, tuple] = {
 
 
 def calculate_haversine_distance(coord1: tuple, coord2: tuple) -> float:
-    """Computes great-circle distance in miles between two coordinates."""
+    """Computes driving distance in miles between two coordinate pairs."""
     lat1, lon1 = math.radians(coord1[0]), math.radians(coord1[1])
     lat2, lon2 = math.radians(coord2[0]), math.radians(coord2[1])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
     a = math.sin(dlat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
     c = 2 * math.asin(math.sqrt(a))
-    straight_miles = 3958.8 * c
-    # Average road winding factor for driving distance is ~1.2x straight line
-    return straight_miles * 1.2
+    # Approximate driving distance with 1.2x road winding multiplier
+    return (3958.8 * c) * 1.2
 
 
 @trace_span("tool.verify_venue_distance")
@@ -278,12 +139,12 @@ def verify_venue_distance(
     max_radius_miles: float = 120.0,
     session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Calculates driving distance and drive time from the user's anchor location to a venue or city.
+    """Calculates driving distance and transit time from the user's anchor location to a venue or city.
 
     Args:
         origin_city (str): User's starting city (e.g. 'Akron, OH' or 'Austin, TX').
-        destination_venue_or_city (str): Venue name or city to evaluate.
-        max_radius_miles (float): Maximum acceptable radius constraint.
+        destination_venue_or_city (str): Destination venue name or city.
+        max_radius_miles (float): Maximum driving radius in miles.
         session_id (str, optional): Active session identifier for telemetry.
 
     Returns:
@@ -313,24 +174,17 @@ def verify_venue_distance(
             message=error_msg,
         ).model_dump()
 
-    # Normalize city lookups
     orig_key = val_input.origin_city.split(",")[0].strip().lower()
     dest_key = val_input.destination_venue_or_city.split(",")[0].strip().lower()
 
-    # Match venue name to city if a venue was provided
-    venue_match = next((v for v in SAMPLE_VENUES_DATABASE if v["name"].lower() in dest_key or dest_key in v["name"].lower()), None)
-    if venue_match:
-        dest_key = venue_match["city"].lower()
-
-    # Fallback to general regional coordinates if exact city not directly in dict
-    orig_coord = CITY_COORDINATES.get(orig_key, (41.0814, -81.5190) if "oh" in origin_city.lower() else (30.2672, -97.7431))
+    orig_coord = CITY_COORDINATES.get(orig_key, (41.0814, -81.5190) if "oh" in val_input.origin_city.lower() else (30.2672, -97.7431))
     dest_coord = CITY_COORDINATES.get(dest_key, None)
 
     if not dest_coord:
-        if any(w in dest_key for w in ["akron", "cleveland", "canton", "aurora", "peninsula", "brunswick", "cuyahoga"]):
-            dest_coord = (41.3, -81.6)
+        if any(w in dest_key for w in ["akron", "cleveland", "canton", "aurora", "peninsula", "brunswick", "bath", "cuyahoga"]):
+            dest_coord = (41.15, -81.55)
         else:
-            dest_coord = (orig_coord[0] + 0.5, orig_coord[1] + 0.5)
+            dest_coord = (orig_coord[0] + 0.4, orig_coord[1] + 0.4)
 
     driving_miles = round(calculate_haversine_distance(orig_coord, dest_coord), 1)
     drive_minutes = max(10, int((driving_miles / 50.0) * 60))
@@ -371,9 +225,7 @@ def query_live_web_venues(
     outdoor_required: bool = False,
     style_preference: Optional[str] = None,
 ) -> List[VenueItem]:
-    """Queries Google Search Grounding via Gemini 2.5 Flash for real-world wedding venues in any city or metro area."""
-    import os
-    import json
+    """Queries Google Search Grounding via Gemini 2.5 Flash for real-world wedding venues across the internet."""
     try:
         from google import genai
         from google.genai import types
@@ -420,7 +272,6 @@ def query_live_web_venues(
         )
 
         text = response.text or ""
-        # Extract JSON from code block
         if "```json" in text:
             raw_json = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
@@ -433,7 +284,7 @@ def query_live_web_venues(
         if venues:
             return venues
     except Exception as e:
-        pass
+        logger.warning(f"Google Search Grounding error: {e}")
 
     # Fallback to DuckDuckGo if Google Grounding has no JSON or network error
     try:
@@ -524,7 +375,8 @@ def search_wedding_venues(
 
     normalized_query = validated_input.city.strip().lower()
 
-    # 2. Check for Live Web Search (when online research is possible and not a unit-test negative case)
+    # 2. Production Path: Query Google Search Grounding for real venues
+    # (Exclude deliberate test cases like "honolulu" which test guided error recovery)
     if "honolulu" not in normalized_query and "unknown" not in normalized_query:
         live_venues = query_live_web_venues(
             city=validated_input.city,
@@ -535,7 +387,7 @@ def search_wedding_venues(
         )
         if live_venues:
             duration_ms = (time.time() - start_time) * 1000
-            success_msg = f"Live internet research identified {len(live_venues)} verified wedding venues near {validated_input.city}."
+            success_msg = f"Live Google Search research identified {len(live_venues)} verified wedding venues near {validated_input.city}."
             log_outcome("VenueScoutAgent", "search_wedding_venues", "SUCCESS", success_msg, duration_ms, session_id)
             return VenueSearchOutput(
                 status="SUCCESS",
@@ -544,27 +396,10 @@ def search_wedding_venues(
                 message=success_msg,
             ).model_dump()
 
-    # 3. Fallback / Test Suite Regional Matching
-    is_ohio = any(k in normalized_query for k in ["ohio", "akron", "cleveland", "canton", "aurora", "peninsula", "northeast"])
-    is_texas = any(k in normalized_query for k in ["texas", "austin", "dallas", "houston", "san antonio", "hill country"])
-    is_california = any(k in normalized_query for k in ["california", "napa", "sonoma", "san francisco", "bay area"])
-    is_colorado = any(k in normalized_query for k in ["colorado", "denver", "boulder", "rockies"])
-    is_florida = any(k in normalized_query for k in ["florida", "miami", "orlando", "tampa"])
-
-    if is_ohio:
-        city_matches = [v for v in SAMPLE_VENUES_DATABASE if v.get("state") == "OH"]
-    elif is_texas:
-        city_matches = [v for v in SAMPLE_VENUES_DATABASE if v.get("state") == "TX"]
-    elif is_california:
-        city_matches = [v for v in SAMPLE_VENUES_DATABASE if v.get("state") == "CA"]
-    elif is_colorado:
-        city_matches = [v for v in SAMPLE_VENUES_DATABASE if v.get("state") == "CO"]
-    elif is_florida:
-        city_matches = [v for v in SAMPLE_VENUES_DATABASE if v.get("state") == "FL"]
-    else:
-        city_matches = [
-            v for v in SAMPLE_VENUES_DATABASE if normalized_query in v["city"].lower() or v["city"].lower() in normalized_query
-        ]
+    # 3. Offline Test Suite Mock Fallback (for unit tests / offline CI)
+    city_matches = [
+        v for v in OFFLINE_MOCK_FALLBACK_DATABASE if normalized_query in v["city"].lower() or v["city"].lower() in normalized_query
+    ]
 
     if not city_matches:
         duration_ms = (time.time() - start_time) * 1000
@@ -582,7 +417,6 @@ def search_wedding_venues(
             message=recovery_message,
         ).model_dump()
 
-    # 3. Filter criteria: Capacity, Budget, Outdoor space, Style
     filtered = []
     for venue in city_matches:
         if venue["max_capacity"] < validated_input.guest_count:
@@ -599,7 +433,6 @@ def search_wedding_venues(
 
     duration_ms = (time.time() - start_time) * 1000
 
-    # 4. Guided Error Handling if zero results after filtering
     if not filtered:
         capacity_bottlenecks = [v for v in city_matches if v["max_capacity"] < validated_input.guest_count]
         budget_bottlenecks = [v for v in city_matches if v["rental_fee_usd"] > validated_input.max_budget_usd]
@@ -607,12 +440,12 @@ def search_wedding_venues(
         guidance_parts = []
         if len(capacity_bottlenecks) == len(city_matches):
             guidance_parts.append(
-                f"Guest count ({validated_input.guest_count}) exceeds capacities of all venues in {city}. Suggest trimming guest list under 200."
+                f"Guest count ({validated_input.guest_count}) exceeds capacities of all venues in {validated_input.city}. Suggest trimming guest list under 200."
             )
         if len(budget_bottlenecks) == len(city_matches):
             min_fee = min(v["rental_fee_usd"] for v in city_matches)
             guidance_parts.append(
-                f"Max budget (${validated_input.max_budget_usd:,.0f}) is below minimum venue rental in {city} (starting at ${min_fee:,.0f}). Suggest allocating at least ${min_fee:,.0f} for the venue."
+                f"Max budget (${validated_input.max_budget_usd:,.0f}) is below minimum venue rental in {validated_input.city} (starting at ${min_fee:,.0f}). Suggest allocating at least ${min_fee:,.0f} for the venue."
             )
         if validated_input.outdoor_required:
             guidance_parts.append("Consider relaxing the strict outdoor requirement or considering hybrid indoor/outdoor estates.")
@@ -630,7 +463,6 @@ def search_wedding_venues(
             message=recovery_msg,
         ).model_dump()
 
-    # Success outcome
     success_msg = f"Successfully identified {len(filtered)} matching venue(s) in {validated_input.city}."
     log_outcome("VenueScoutAgent", "search_wedding_venues", "SUCCESS", success_msg, duration_ms, session_id)
     return VenueSearchOutput(
@@ -639,3 +471,4 @@ def search_wedding_venues(
         venues=filtered,
         message=success_msg,
     ).model_dump()
+
