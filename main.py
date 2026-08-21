@@ -1,27 +1,63 @@
-"""Interactive CLI demo for the Tie-the-Knot Wedding Planner Multi-Agent System."""
+"""Interactive CLI for the Tie-the-Knot Wedding Planner Multi-Agent System with Live Gemini Reasoning."""
 
 import os
 import sys
 import uuid
-from wedding_planner.agent import root_agent, get_strategic_model
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from google import genai
+from google.genai import types
+
+from wedding_planner.agent import get_strategic_model
+from wedding_planner.constitution import WEDDING_PLANNER_CONSTITUTION
 from wedding_planner.memory.session_store import PersistentSessionStore
 from wedding_planner.memory.compaction import trigger_background_memory_consolidation, ContextCompactor
 from wedding_planner.tools.venue_tools import search_wedding_venues
 from wedding_planner.tools.budget_tools import calculate_budget_allocation
 from wedding_planner.tools.outreach_tools import stage_vendor_inquiry_email
-from wedding_planner.guardrails.policy_plugin import BudgetSafetyGuardrail, HITLPolicyPlugin, SelfEvalGuardrail
+from wedding_planner.guardrails.policy_plugin import SelfEvalGuardrail
 from wedding_planner.observability.logging import logger, setup_structured_logging
-from wedding_planner.secret_manager import get_secret
 
 
 def print_banner():
-    print("=" * 70)
-    print("💍 Tie-the-Knot Concierge — Multi-Agent Wedding Planner AI")
-    print("   Built with Google ADK, Gemini Strategic Routing, and OpenTelemetry")
-    print("=" * 70)
-    print("Type 'quit' or 'exit' to end the session.")
-    print("Type 'status' to view the current saved wedding profile.")
-    print("-" * 70)
+    print("=" * 75)
+    print("💍 Tie-the-Knot Concierge — Live Gemini 2.5 Multi-Agent Wedding Planner AI")
+    print("   Powered by Google Gemini 2.5 Pro / Flash, Strategic Routing & Telemetry")
+    print("=" * 75)
+    print("Commands:")
+    print("  • Type 'status' to view your persistent SQLite wedding profile")
+    print("  • Type 'quit' or 'exit' to end session")
+    print("-" * 75)
+
+
+def get_genai_client():
+    """Initializes Google GenAI Client via Gemini API Key or Vertex AI ADC."""
+    project_id = os.getenv("GCP_PROJECT_ID", "wedding-planner-agent-506218")
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if api_key and api_key.startswith("AIza"):
+        return genai.Client(api_key=api_key)
+    try:
+        # Connect via Google Cloud Vertex AI (Default Application Credentials)
+        return genai.Client(vertexai=True, project=project_id, location="us-central1")
+    except Exception as e:
+        logger.warning(f"Could not connect to Vertex AI: {e}")
+        return None
+
+
+def execute_tool(func_name: str, args: dict, session_id: str) -> dict:
+    """Dispatches tool execution to registered python tool functions."""
+    args["session_id"] = session_id
+    if func_name == "calculate_budget_allocation":
+        return calculate_budget_allocation(**args)
+    elif func_name == "search_wedding_venues":
+        return search_wedding_venues(**args)
+    elif func_name == "stage_vendor_inquiry_email":
+        return stage_vendor_inquiry_email(**args)
+    return {"status": "ERROR", "message": f"Unknown tool '{func_name}'"}
 
 
 def interactive_cli():
@@ -29,12 +65,21 @@ def interactive_cli():
     session_store = PersistentSessionStore()
     session_id = f"session_{uuid.uuid4().hex[:8]}"
     compactor = ContextCompactor()
+    client = get_genai_client()
 
     print_banner()
     print(f"[Session ID: {session_id}]")
-    print("\nTie-the-Knot Concierge: Welcome! Congratulations on the upcoming wedding!")
-    print("I'm here to help plan everything smoothly. Where are you thinking of hosting the wedding,")
+    if client:
+        print("🟢 Live Gemini 2.5 Agent Connected (Vertex AI / Gemini API)")
+    else:
+        print("🟡 Running in offline fallback mode")
+
+    print("\nTie-the-Knot Concierge: Welcome! Congratulations on the upcoming wedding! 🥂")
+    print("I'm here to help plan every detail smoothly. Where are you thinking of hosting the wedding,")
     print("and do you have an estimated budget or guest count in mind?\n")
+
+    # Maintain conversation state for live Gemini model
+    chat_contents: list = []
 
     while True:
         try:
@@ -46,7 +91,7 @@ def interactive_cli():
                 break
             if user_input.lower() == "status":
                 profile = session_store.get_or_create_profile(session_id)
-                print("\n📋 Current Saved Wedding Profile:")
+                print("\n📋 Current Saved Wedding Profile (SQLite):")
                 for k, v in profile.items():
                     print(f"  - {k}: {v}")
                 print()
@@ -55,94 +100,64 @@ def interactive_cli():
             # Record turn in persistent session storage
             session_store.record_message(session_id, "user", user_input)
 
-            # Retrieve conversation history
+            # Retrieve conversation history & trigger background memory extraction
             history = session_store.get_history(session_id)
-            compacted_history = compactor.compact_history(history)
-
-            # Trigger non-blocking async memory consolidation
             trigger_background_memory_consolidation(session_id, history, session_store)
 
-            # Process intent and route tool calls based on user input
-            text_lower = user_input.lower()
             response_text = ""
 
-            if any(w in text_lower for w in ["venue", "place", "location", "hall", "mansion", "barn"]):
-                profile = session_store.get_or_create_profile(session_id)
-                city = profile.get("city") or ("Austin" if "austin" in text_lower else "Austin")
-                guest_count = profile.get("guest_count") or 120
-                budget = profile.get("total_budget_usd") or 15000.0
-                outdoor = "outdoor" in text_lower or True
-
-                res = search_wedding_venues(
-                    city=city,
-                    guest_count=guest_count,
-                    max_budget_usd=budget if budget < 20000 else budget * 0.4,
-                    outdoor_required=outdoor,
-                    session_id=session_id,
+            if client:
+                # Add user turn to conversation history
+                chat_contents.append(
+                    types.Content(role="user", parts=[types.Part.from_text(text=user_input)])
                 )
 
-                if res["status"] == "SUCCESS":
-                    response_text = f"🏰 Found {res['matched_count']} matching venue(s) in {city}:\n"
-                    for v in res["venues"]:
-                        response_text += (
-                            f"\n• {v['name']} ({v['style'].title()})\n"
-                            f"  - Capacity: {v['max_capacity']} guests | Base Rental: ${v['rental_fee_usd']:,.0f}\n"
-                            f"  - Estimated Total: ${v['estimated_total_usd']:,.0f}\n"
-                            f"  - Outdoor Space: {'Yes' if v['has_outdoor_space'] else 'No'} | Outside Catering: {'Allowed' if v['allows_outside_catering'] else 'In-house only'}\n"
-                            f"  - Contact: {v['contact_email']}\n"
+                # Call Gemini 2.5 Pro with Tools
+                model_name = get_strategic_model("orchestration")
+                config = types.GenerateContentConfig(
+                    system_instruction=WEDDING_PLANNER_CONSTITUTION,
+                    tools=[calculate_budget_allocation, search_wedding_venues, stage_vendor_inquiry_email],
+                    temperature=0.7,
+                )
+
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=chat_contents,
+                    config=config,
+                )
+
+                # Multi-turn tool execution loop
+                while response.function_calls:
+                    chat_contents.append(response.candidates[0].content)
+                    tool_parts = []
+                    for fc in response.function_calls:
+                        tool_result = execute_tool(fc.name, dict(fc.args), session_id)
+                        tool_parts.append(
+                            types.Part.from_function_response(name=fc.name, response={"result": tool_result})
                         )
-                else:
-                    response_text = f"ℹ️ {res['message']}"
 
-            elif any(w in text_lower for w in ["budget", "cost", "breakdown", "allocate", "dollars", "$"]):
-                profile = session_store.get_or_create_profile(session_id)
-                budget = profile.get("total_budget_usd") or 35000.0
-                guest_count = profile.get("guest_count") or 120
-
-                res = calculate_budget_allocation(
-                    total_budget_usd=budget,
-                    guest_count=guest_count,
-                    session_id=session_id,
-                )
-
-                if res["status"] == "SUCCESS":
-                    response_text = (
-                        f"📊 Budget Allocation for ${res['total_budget_usd']:,.0f} ({guest_count} guests - ~${res['estimated_cost_per_guest_usd']:,.2f}/guest):\n"
+                    chat_contents.append(types.Content(role="tool", parts=tool_parts))
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=chat_contents,
+                        config=config,
                     )
-                    for alloc in res["allocations"]:
-                        response_text += f"  • {alloc['category']} ({alloc['percentage_of_total']}%): ${alloc['allocated_usd']:,.2f}\n"
-                    response_text += f"\n💡 Feasibility: {res['feasibility_assessment']} (Includes ${res['contingency_fund_usd']:,.2f} contingency reserve)."
-                else:
-                    response_text = f"⚠️ {res['message']}"
 
-            elif any(w in text_lower for w in ["email", "inquiry", "draft", "contact", "reach out"]):
-                res = stage_vendor_inquiry_email(
-                    vendor_name="Barr Mansion",
-                    recipient_email="events@barrmansion.com",
-                    wedding_date="October 17, 2026",
-                    estimated_guest_count=120,
-                    budget_range_usd="$12,000 - $16,000",
-                    specific_questions=["What is the deposit schedule?", "Do you provide on-site day-of coordination?"],
-                    session_id=session_id,
-                )
-                response_text = (
-                    f"✉️ Staged Draft for '{res['recipient']}':\n\n"
-                    f"Subject: {res['staged_email_subject']}\n\n"
-                    f"{res['staged_email_body']}\n"
-                    f"{res['approval_prompt']}"
+                response_text = response.text or "I've processed your request. How else can I assist with your wedding plans?"
+                chat_contents.append(
+                    types.Content(role="model", parts=[types.Part.from_text(text=response_text)])
                 )
 
             else:
+                # Intelligent offline fallback
                 response_text = (
-                    "I've updated your wedding planning notes! Would you like me to:\n"
-                    "1. Search top venues in your preferred city (`search_wedding_venues`)\n"
-                    "2. Generate an itemized 7-category budget breakdown (`calculate_budget_allocation`)\n"
-                    "3. Draft a vendor inquiry RFP email for your review (`stage_vendor_inquiry_email`)"
+                    "I've noted your preferences! Let me analyze venue options and budget distributions "
+                    "for your wedding."
                 )
 
-            # Self-Evaluation Guardrail check
-            eval_metrics = SelfEvalGuardrail.evaluate_response(response_text, session_store.get_or_create_profile(session_id))
+            # Record assistant turn in SQLite
             session_store.record_message(session_id, "assistant", response_text)
+            eval_metrics = SelfEvalGuardrail.evaluate_response(response_text, session_store.get_or_create_profile(session_id))
 
             print(f"\nTie-the-Knot Concierge:\n{response_text}\n")
 
@@ -153,3 +168,4 @@ def interactive_cli():
 
 if __name__ == "__main__":
     interactive_cli()
+
