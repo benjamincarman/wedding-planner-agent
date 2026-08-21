@@ -46,6 +46,8 @@ class VenueItem(BaseModel):
     has_outdoor_space: bool = Field(..., description="True if outdoor spaces are available.")
     allows_outside_catering: bool = Field(..., description="True if outside caterers are permitted.")
     contact_email: str = Field(..., description="Primary contact email for inquiries.")
+    website_url: Optional[str] = Field(default=None, description="Official website URL or directory listing.")
+    description: Optional[str] = Field(default=None, description="Detailed description and key features from web research.")
 
 
 class VenueSearchOutput(BaseModel):
