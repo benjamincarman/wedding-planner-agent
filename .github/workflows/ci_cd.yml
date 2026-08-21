@@ -1,10 +1,15 @@
-name: CI/CD Pipeline & ADK Cloud Run Deployment
+name: CI/CD Pipeline & ADK Cloud Run Deployment (Keyless WIF)
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+
+# Required permissions for GitHub OIDC Token Generation (Keyless Authentication)
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   # 1. Automated Test & Golden Dataset Evaluation Harness
@@ -30,7 +35,7 @@ jobs:
         run: |
           PYTHONPATH=. pytest -v
 
-  # 2. Continuous Deployment to GCP Cloud Run via ADK
+  # 2. Continuous Deployment to GCP Cloud Run via Keyless Workload Identity Federation
   deploy-cloud-run:
     needs: test-and-eval
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -50,10 +55,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Authenticate to Google Cloud
+      # Keyless GCP Authentication via Workload Identity Federation (No SA JSON keys!)
+      - name: Authenticate to Google Cloud (Keyless OIDC)
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
