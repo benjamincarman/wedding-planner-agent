@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# Required permissions for GitHub OIDC Token Generation (Keyless Authentication)
 permissions:
   id-token: write
   contents: read
@@ -55,12 +54,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Keyless GCP Authentication via Workload Identity Federation (No SA JSON keys!)
+      # Keyless GCP Authentication via Workload Identity Federation
       - name: Authenticate to Google Cloud (Keyless OIDC)
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+          create_credentials_file: true
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -69,6 +70,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          gcloud auth login --cred-file="${{ steps.auth.outputs.credentials_file_path }}"
+          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
           adk deploy cloud_run \
             --project=${{ secrets.GCP_PROJECT_ID }} \
             --region=us-central1 \
