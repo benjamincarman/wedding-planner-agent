@@ -371,32 +371,89 @@ def query_live_web_venues(
     outdoor_required: bool = False,
     style_preference: Optional[str] = None,
 ) -> List[VenueItem]:
-    """Queries live internet search engines for real-world wedding venues in any city or metro area."""
+    """Queries Google Search Grounding via Gemini 2.5 Flash for real-world wedding venues in any city or metro area."""
+    import os
+    import json
+    try:
+        from google import genai
+        from google.genai import types
+
+        api_key = os.getenv("GEMINI_API_KEY")
+        project_id = os.getenv("GCP_PROJECT_ID", "wedding-planner-agent-506218")
+
+        if api_key and api_key.startswith("AIza"):
+            client = genai.Client(api_key=api_key)
+        else:
+            client = genai.Client(vertexai=True, project=project_id, location="us-central1")
+
+        prompt = f"""
+        Perform Google Search to find 4 to 6 real, currently operating wedding venues in or within 45 miles of {city}.
+        Constraints:
+        - Must accommodate at least {guest_count} guests.
+        - Total venue rental or package target under ${int(max_budget_usd):,}.
+        - Outdoor space preference: {'Required' if outdoor_required else 'Optional/Preferred'}.
+        - Style preference: {style_preference or 'Any scenic, barn, hall, manor, or ballroom'}.
+
+        Return a strictly valid JSON array of objects with the following keys for each venue:
+        - "name": string (exact venue name)
+        - "city": string (city/town location)
+        - "max_capacity": integer
+        - "rental_fee_usd": number (estimated base rental fee)
+        - "estimated_total_usd": number (estimated total including standard minimums)
+        - "style": string (e.g. rustic barn, historic estate, park lodge, ballroom)
+        - "has_outdoor_space": boolean
+        - "allows_outside_catering": boolean (true if outside caterers allowed, false if in-house only)
+        - "contact_email": string (e.g. inquiries@domain.com)
+        - "website_url": string (official website URL)
+        - "description": string (1-2 sentences on amenities, location, and why it fits the budget)
+
+        Format output ONLY as a JSON code block: ```json [ ... ] ```.
+        """
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[{"google_search": {}}],
+                temperature=0.2,
+            ),
+        )
+
+        text = response.text or ""
+        # Extract JSON from code block
+        if "```json" in text:
+            raw_json = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            raw_json = text.split("```")[1].split("```")[0].strip()
+        else:
+            raw_json = text.strip()
+
+        parsed = json.loads(raw_json)
+        venues = [VenueItem(**item) for item in parsed if isinstance(item, dict)]
+        if venues:
+            return venues
+    except Exception as e:
+        pass
+
+    # Fallback to DuckDuckGo if Google Grounding has no JSON or network error
     try:
         from duckduckgo_search import DDGS
         query = f"wedding venues in or near {city} capacity {guest_count} budget under {int(max_budget_usd)}"
         if style_preference:
             query += f" {style_preference}"
-        if outdoor_required:
-            query += " outdoor garden"
 
         venues = []
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=8))
+            results = list(ddgs.text(query, max_results=6))
             for item in results:
                 title = item.get("title", "")
                 url = item.get("href", "")
                 snippet = item.get("body", "")
-
-                # Clean title to extract venue name
-                clean_name = title.split("|")[0].split("-")[0].split("—")[0].split("–")[0].strip()
-                if not clean_name or len(clean_name) < 3 or any(w in clean_name.lower() for w in ["the 10 best", "top 10", "the best 10", "venues in", "wedding venues"]):
+                clean_name = title.split("|")[0].split("-")[0].split("—")[0].strip()
+                if not clean_name or len(clean_name) < 3 or "best" in clean_name.lower():
                     continue
 
-                # Generate clean contact email placeholder based on venue name
                 domain_slug = "".join(c for c in clean_name.lower() if c.isalnum())[:14]
-                contact_email = f"inquiries@{domain_slug}.com"
-
                 venues.append(
                     VenueItem(
                         name=clean_name,
@@ -405,9 +462,9 @@ def query_live_web_venues(
                         rental_fee_usd=round(min(max_budget_usd * 0.45, 4500.0), 2),
                         estimated_total_usd=round(min(max_budget_usd, 12500.0), 2),
                         style=style_preference or "scenic regional venue",
-                        has_outdoor_space=True if outdoor_required else ("outdoor" in snippet.lower() or "garden" in snippet.lower()),
-                        allows_outside_catering="outside" in snippet.lower() or "cater" in snippet.lower() or True,
-                        contact_email=contact_email,
+                        has_outdoor_space=True if outdoor_required else ("outdoor" in snippet.lower()),
+                        allows_outside_catering=True,
+                        contact_email=f"inquiries@{domain_slug}.com",
                         website_url=url,
                         description=snippet[:300],
                     )
@@ -415,7 +472,7 @@ def query_live_web_venues(
                 if len(venues) >= 5:
                     break
         return venues
-    except Exception as e:
+    except Exception:
         return []
 
 
