@@ -113,13 +113,14 @@ resource "google_cloud_run_v2_service" "agent_service" {
   ]
 }
 
-# 7. Make Cloud Run Publicly Accessible (Optional / Configurable)
-resource "google_cloud_run_service_iam_member" "public_access" {
-  location = google_cloud_run_v2_service.agent_service.location
-  service  = google_cloud_run_v2_service.agent_service.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
+# 7. Public Access (Commented out to adhere to Domain Restricted Sharing Organization Policy)
+# If your GCP project allows public unauthenticated traffic, you can uncomment this block.
+# resource "google_cloud_run_service_iam_member" "public_access" {
+#   location = google_cloud_run_v2_service.agent_service.location
+#   service  = google_cloud_run_v2_service.agent_service.name
+#   role     = "roles/run.invoker"
+#   member   = "allUsers"
+# }
 
 # 8. Workload Identity Federation (Keyless GitHub Actions OIDC Authentication)
 resource "google_iam_workload_identity_pool" "github_pool" {
