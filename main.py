@@ -15,7 +15,7 @@ from wedding_planner.agent import get_strategic_model
 from wedding_planner.constitution import WEDDING_PLANNER_CONSTITUTION
 from wedding_planner.memory.session_store import PersistentSessionStore
 from wedding_planner.memory.compaction import trigger_background_memory_consolidation, ContextCompactor
-from wedding_planner.tools.venue_tools import search_wedding_venues
+from wedding_planner.tools.venue_tools import search_wedding_venues, verify_venue_distance
 from wedding_planner.tools.budget_tools import calculate_budget_allocation
 from wedding_planner.tools.outreach_tools import stage_vendor_inquiry_email
 from wedding_planner.guardrails.policy_plugin import SelfEvalGuardrail
@@ -55,6 +55,8 @@ def execute_tool(func_name: str, args: dict, session_id: str) -> dict:
         return calculate_budget_allocation(**args)
     elif func_name == "search_wedding_venues":
         return search_wedding_venues(**args)
+    elif func_name == "verify_venue_distance":
+        return verify_venue_distance(**args)
     elif func_name == "stage_vendor_inquiry_email":
         return stage_vendor_inquiry_email(**args)
     return {"status": "ERROR", "message": f"Unknown tool '{func_name}'"}
@@ -116,7 +118,7 @@ def interactive_cli():
                 model_name = get_strategic_model("orchestration")
                 config = types.GenerateContentConfig(
                     system_instruction=WEDDING_PLANNER_CONSTITUTION,
-                    tools=[calculate_budget_allocation, search_wedding_venues, stage_vendor_inquiry_email],
+                    tools=[calculate_budget_allocation, search_wedding_venues, verify_venue_distance, stage_vendor_inquiry_email],
                     temperature=0.7,
                 )
 

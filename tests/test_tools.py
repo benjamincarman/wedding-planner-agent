@@ -1,7 +1,7 @@
 """Unit tests for wedding planning tools, schemas, and guided error handling."""
 
 import pytest
-from wedding_planner.tools.venue_tools import search_wedding_venues
+from wedding_planner.tools.venue_tools import search_wedding_venues, verify_venue_distance
 from wedding_planner.tools.budget_tools import calculate_budget_allocation
 from wedding_planner.tools.outreach_tools import stage_vendor_inquiry_email
 
@@ -26,6 +26,30 @@ def test_venue_search_guided_error_tight_budget():
     )
     assert result["status"] == "GUIDED_ERROR"
     assert "below minimum venue rental" in result["message"]
+
+
+def test_verify_venue_distance_within_radius():
+    result = verify_venue_distance(
+        origin_city="Akron, OH",
+        destination_venue_or_city="Stan Hywet Hall & Gardens",
+        max_radius_miles=50.0,
+    )
+    assert result["status"] == "SUCCESS"
+    assert result["within_radius"] is True
+    assert result["distance_miles"] < 50.0
+    assert result["estimated_drive_time_minutes"] > 0
+
+
+def test_verify_venue_distance_exceeds_radius():
+    result = verify_venue_distance(
+        origin_city="Akron, OH",
+        destination_venue_or_city="Columbus, OH",
+        max_radius_miles=50.0,
+    )
+    assert result["status"] == "GUIDED_ERROR"
+    assert result["within_radius"] is False
+    assert result["distance_miles"] > 50.0
+    assert "exceeds" in result["message"]
 
 
 def test_budget_allocation_custom_priorities():

@@ -4,7 +4,7 @@ import os
 from typing import List, Optional
 from google.adk import Agent
 from wedding_planner.constitution import WEDDING_PLANNER_CONSTITUTION
-from wedding_planner.tools.venue_tools import search_wedding_venues
+from wedding_planner.tools.venue_tools import search_wedding_venues, verify_venue_distance
 from wedding_planner.tools.budget_tools import calculate_budget_allocation
 from wedding_planner.tools.outreach_tools import stage_vendor_inquiry_email
 from wedding_planner.guardrails.policy_plugin import HITLPolicyPlugin
@@ -14,7 +14,7 @@ from wedding_planner.observability.logging import logger, log_intent, log_outcom
 def get_strategic_model(task_type: str = "general") -> str:
     """Strategic Model Routing: Routes requests to the most appropriate Gemini model.
 
-    - Flash ('gemini-2.5-flash'): Fast sub-agent tool lookups, guest list parsing, email drafting.
+    - Flash ('gemini-2.5-flash'): Fast sub-agent tool lookups, distance checks, email drafting.
     - Pro ('gemini-2.5-pro'): Coordinator orchestration, complex trade-off analysis, multi-vendor synthesis.
     """
     routing_table = {
@@ -23,6 +23,7 @@ def get_strategic_model(task_type: str = "general") -> str:
         "trade_off_analysis": "gemini-2.5-pro",
         "fast_lookup": "gemini-2.5-flash",
         "venue_search": "gemini-2.5-flash",
+        "distance_check": "gemini-2.5-flash",
         "budget_calculation": "gemini-2.5-flash",
         "email_drafting": "gemini-2.5-flash",
         "general": "gemini-2.5-flash",
@@ -38,16 +39,16 @@ def get_strategic_model(task_type: str = "general") -> str:
 # --- 1. Venue & Vendor Scout Specialist Agent ---
 venue_scout_agent = Agent(
     name="venue_scout_agent",
-    description="Specialist agent that searches, filters, and ranks wedding venues and vendors matching capacity, budget, and style.",
+    description="Specialist agent that searches, filters, and ranks wedding venues, and verifies driving distances and transit times.",
     model=get_strategic_model("venue_search"),
     instruction="""
     You are the Venue & Vendor Scouting Specialist.
-    Your responsibility is to query wedding venue databases using the `search_wedding_venues` tool.
-    Always prioritize venues that fit strictly within the couple's guest capacity and budget ceiling.
+    Your responsibility is to query wedding venue databases using `search_wedding_venues` and verify driving distances using `verify_venue_distance`.
+    Always prioritize venues that fit strictly within the couple's guest capacity, budget ceiling, and driving radius.
     Highlight key amenities such as outdoor space, outside catering permissions, and estimated total costs.
     If no venues match, provide constructive, guided alternative suggestions.
     """,
-    tools=[search_wedding_venues],
+    tools=[search_wedding_venues, verify_venue_distance],
 )
 
 # --- 2. Budget & Cost Specialist Agent ---
@@ -85,5 +86,5 @@ root_agent = Agent(
     model=get_strategic_model("orchestration"),
     instruction=WEDDING_PLANNER_CONSTITUTION,
     sub_agents=[venue_scout_agent, budget_specialist_agent, outreach_agent],
-    tools=[search_wedding_venues, calculate_budget_allocation, stage_vendor_inquiry_email],
+    tools=[search_wedding_venues, verify_venue_distance, calculate_budget_allocation, stage_vendor_inquiry_email],
 )

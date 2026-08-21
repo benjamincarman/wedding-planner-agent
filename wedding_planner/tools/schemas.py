@@ -90,10 +90,32 @@ class BudgetAllocationOutput(BaseModel):
     status: str = Field(..., description="Execution status: 'SUCCESS' or 'GUIDED_ERROR'.")
     total_budget_usd: float = Field(..., description="Total budget analyzed.")
     estimated_cost_per_guest_usd: float = Field(..., description="Estimated total spend per guest.")
+    strategy_mode: str = Field(default="STANDARD_PERCENTAGE", description="Allocation strategy: 'STANDARD_PERCENTAGE' or 'UNBUNDLED_COMPONENT_TARGET'.")
+    target_venue_rental_ceiling_usd: Optional[float] = Field(default=None, description="Recommended maximum venue rental fee to leave room for food/services.")
+    target_catering_per_guest_usd: Optional[float] = Field(default=None, description="Recommended per-person food & beverage ceiling.")
     allocations: List[CategoryAllocation] = Field(default_factory=list, description="Category-by-category breakdown.")
     contingency_fund_usd: float = Field(..., description="Recommended emergency reserve (typically 5-10%).")
     feasibility_assessment: str = Field(..., description="Evaluation of budget feasibility for guest count.")
     message: str = Field(..., description="Summary or guided error instructions.")
+
+
+# --- Geographic Distance Verification Schemas ---
+class DistanceVerificationInput(BaseModel):
+    """Input parameters for verifying venue distance and drive time from an anchor location."""
+    origin_city: str = Field(..., description="The user's starting or anchor city/metro (e.g. 'Akron, OH' or 'Austin, TX').")
+    destination_venue_or_city: str = Field(..., description="The destination venue or city to measure distance to.")
+    max_radius_miles: float = Field(default=120.0, gt=0, description="Maximum acceptable driving radius in miles.")
+
+
+class DistanceVerificationOutput(BaseModel):
+    """Output verifying distance, drive time, and radius compliance."""
+    status: str = Field(..., description="'SUCCESS' or 'GUIDED_ERROR'.")
+    origin: str = Field(..., description="Resolved starting origin.")
+    destination: str = Field(..., description="Resolved destination venue/city.")
+    distance_miles: float = Field(..., description="Calculated driving distance in miles.")
+    estimated_drive_time_minutes: int = Field(..., description="Estimated drive time in minutes.")
+    within_radius: bool = Field(..., description="True if distance <= max_radius_miles.")
+    message: str = Field(..., description="Summary evaluation or radius guidance.")
 
 
 # --- Vendor Outreach & Human-in-the-Loop Schemas ---

@@ -36,9 +36,16 @@ If the user is new or hasn't established their wedding parameters, ask targeted 
 - High-Stakes Outreach Stop: Any outreach or inquiry email to a venue/vendor MUST be staged first using `stage_vendor_inquiry_email`.
 - NEVER claim an email has been sent without explicit human confirmation. Always ask the user: "Would you like me to dispatch this inquiry, or would you like to edit the draft first?"
 
-=== MULTI-AGENT COLLABORATION ===
+=== MULTI-AGENT COLLABORATION & TOOL DISPATCH ===
 - Route venue search tasks to `search_wedding_venues`.
+- Route distance and driving radius verification tasks to `verify_venue_distance`.
 - Route budget distribution and cost trade-off requests to `calculate_budget_allocation`.
 - Route vendor communication drafting to `stage_vendor_inquiry_email`.
-- Always summarize technical tool outputs into a clear, beautiful markdown table or checklist for the user.
+
+=== STRUCTURED REPORTING GUIDELINES ===
+When presenting venue options and feasibility analysis to the couple:
+1. Always present a clean **Markdown Comparison Table** showing:
+   | Venue Name | Style | Capacity | Est. Rental Fee | Est. Total | Outside Catering | Est. Drive Distance / Time |
+2. Provide a clear **Budget & Feasibility Assessment** explaining the per-guest math and any necessary trade-offs (e.g. BYO catering, guest count adjustments, Friday/Sunday date discounts).
+3. Offer concrete next steps: allow the couple to select candidate venues for customized RFP inquiry email staging.
 """
