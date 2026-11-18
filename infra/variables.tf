@@ -21,3 +21,14 @@ variable "container_image" {
   description = "Container image URL deployed from Artifact Registry."
   default     = "us-central1-docker.pkg.dev/my-wedding-planner-prod/agent-repo/wedding-planner-agent:latest"
 }
+
+variable "github_repository" {
+  type        = string
+  description = "GitHub repository (owner/repo) allowed to authenticate via Workload Identity Federation."
+  default     = "benjamincarman/wedding-planner-agent"
+
+  validation {
+    condition     = can(regex("^[^/]+/[^/]+$", var.github_repository))
+    error_message = "github_repository must be in 'owner/repo' format."
+  }
+}

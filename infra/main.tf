@@ -143,7 +143,7 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
     "attribute.repository"       = "assertion.repository"
     "attribute.repository_owner" = "assertion.repository_owner"
   }
-  attribute_condition = "assertion.repository_owner != ''"
+  attribute_condition = "assertion.repository_owner == '${split("/", var.github_repository)[0]}' && assertion.repository == '${var.github_repository}'"
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
@@ -153,7 +153,7 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
 resource "google_service_account_iam_member" "wif_binding" {
   service_account_id = google_service_account.agent_runner_sa.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_pool.name}/*"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_pool.name}/attribute.repository/${var.github_repository}"
 }
 
 # 10. Grant Deployment IAM Roles to the Service Account
